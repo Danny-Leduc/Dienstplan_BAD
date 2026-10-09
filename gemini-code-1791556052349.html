@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Filial-Dienstplan & Schichttausch</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f4f6f8; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding-bottom: 40px; }
+    .navbar { background-color: #1e293b; }
+    .card-shift { border-left: 5px solid #0d6efd; }
+    .card-swap { border-left: 5px solid #ffc107; }
+    .filter-btn.active { background-color: #0d6efd; color: white; }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar navbar-dark mb-4">
+    <div class="container d-flex justify-content-between">
+      <span class="navbar-brand mb-0 h1">🗓️ Filial-Dienstplan</span>
+      <div id="userBadge" class="text-white small"></div>
+    </div>
+  </nav>
+
+  <div class="container" style="max-width: 800px;">
+
+    <!-- Login / Nutzer-Auswahl -->
+    <div id="loginSection" class="card card-body mb-4 shadow-sm">
+      <h5 class="card-title">Anmelden</h5>
+      <p class="text-muted small">Wähle deinen Namen aus, um deinen Dienstplan zu sehen.</p>
+      <div class="mb-3">
+        <label class="form-label">Mitarbeiter auswälen</label>
+        <select id="userSelect" class="form-select">
+          <option value="">-- Bitte wählen --</option>
+          <option value="M-101|Anna Schmidt|Location Manager|FIL-01">Anna Schmidt (Location Manager - Filiale 1)</option>
+          <option value="M-102|Bernd Weber|Rental Sales Agent|FIL-01">Bernd Weber (Sales Agent - Filiale 1)</option>
+          <option value="M-103|Clara Meyer|Hiker|FIL-01">Clara Meyer (Hiker - Filiale 1)</option>
+          <option value="M-104|David Fischer|Location Manager|FIL-02">David Fischer (Location Manager - Filiale 2)</option>
+          <option value="M-105|Elena Wagner|Rental Sales Agent|FIL-02">Elena Wagner (Sales Agent - Filiale 2)</option>
+          <option value="M-106|Felix Schulz|Hiker|FIL-02">Felix Schulz (Hiker - Filiale 2)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="login()">Einloggen</button>
+    </div>
+
+    <!-- Hauptbereich (Nach Login sichtbar) -->
+    <div id="appSection" style="display: none;">
+
+      <!-- Ansichten-Filter -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="btn-group" role="group">
+          <button id="btnAll" class="btn btn-outline-primary active" onclick="setFilter('all')">📅 Tageskalender (Alle)</button>
+          <button id="btnMine" class="btn btn-outline-primary" onclick="setFilter('mine')">👤 Meine Schichten</button>
+        </div>
+        <button id="btnManagerAdd" class="btn btn-success btn-sm" style="display: none;" onclick="showAddShiftModal()">+ Schicht erstellen</button>
+      </div>
+
+      <!-- Schicht-Liste / Kalenderansicht -->
+      <div id="shiftsContainer"></div>
+    </div>
+
+  </div>
+
+  <script>
+    // Beispiel-Datenbank im Speicher (wird lokal im Browser gespeichert)
+    let currentUser = null;
+    let activeFilter = 'all';
+
+    let shifts = JSON.parse(localStorage.getItem('shifts_data')) || [
+      { id: 'S1', date: '2026-10-12', time: '07:00 - 15:30', location: 'FIL-01', empId: 'M-102', empName: 'Bernd Weber', role: 'Rental Sales Agent', status: 'Gebucht' },
+      { id: 'S2', date: '2026-10-12', time: '08:00 - 16:30', location: 'FIL-01', empId: 'M-103', empName: 'Clara Meyer', role: 'Hiker', status: 'Tausch angefragt' },
+      { id: 'S3', date: '2026-10-12', time: '06:00 - 14:30', location: 'FIL-02', empId: 'M-105', empName: 'Elena Wagner', role: 'Rental Sales Agent', status: 'Gebucht' }
+    ];
+
+    function saveShifts() {
+      localStorage.setItem('shifts_data', JSON.stringify(shifts));
+      renderShifts();
+    }
+
+    function login() {
+      const val = document.getElementById('userSelect').value;
+      if (!val) return alert('Bitte wähle einen Nutzer aus!');
+      
+      const parts = val.split('|');
+      currentUser = { id: parts[0], name: parts[1], role: parts[2], location: parts[3] };
+
+      document.getElementById('userBadge').innerText = `${currentUser.name} (${currentUser.role})`;
+      document.getElementById('loginSection').style.display = 'none';
+      document.getElementById('appSection').style.display = 'block';
+
+      if (currentUser.role === 'Location Manager') {
+        document.getElementById('btnManagerAdd').style.display = 'block';
+      }
+
+      renderShifts();
+    }
+
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.getElementById('btnAll').classList.toggle('active', filter === 'all');
+      document.getElementById('btnMine').classList.toggle('active', filter === 'mine');
+      renderShifts();
+    }
+
+    function renderShifts() {
+      const container = document.getElementById('shiftsContainer');
+      container.innerHTML = '';
+
+      let filteredShifts = shifts;
+      if (activeFilter === 'mine') {
+        filteredShifts = shifts.filter(s => s.empId === currentUser.id);
+      }
+
+      if (filteredShifts.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">Keine Schichten gefunden.</div>';
+        return;
+      }
+
+      filteredShifts.forEach(s => {
+        const isMine = s.empId === currentUser.id;
+        const isManager = currentUser.role === 'Location Manager';
+
+        let actionHtml = '';
+
+        if (s.status === 'Gebucht' && isMine) {
+          actionHtml = `<button class="btn btn-sm btn-outline-warning float-end" onclick="requestSwap('${s.id}')">Tausch anfragen</button>`;
+        } else if (s.status === 'Tausch angefragt') {
+          if (isManager) {
+            actionHtml = `<button class="btn btn-sm btn-success float-end me-2" onclick="approveSwap('${s.id}')">Tausch Freigeben</button>`;
+          } else if (!isMine) {
+            actionHtml = `<button class="btn btn-sm btn-primary float-end" onclick="takeOverShift('${s.id}')">Schicht Übernehmen</button>`;
+          } else {
+            actionHtml = `<span class="badge bg-warning text-dark float-end">Tausch offen</span>`;
+          }
+        }
+
+        const card = document.createElement('div');
+        card.className = `card card-body mb-3 ${s.status === 'Tausch angefragt' ? 'card-swap' : 'card-shift'}`;
+        card.innerHTML = `
+          <div>
+            ${actionHtml}
+            <h6 class="mb-1">${s.date} | ${s.time} Uhr</h6>
+            <p class="mb-1"><strong>Mitarbeiter:</strong> ${s.empName} (${s.role})</p>
+            <small class="text-muted">Filiale: ${s.location} | Status: ${s.status}</small>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function requestSwap(shiftId) {
+      const shift = shifts.find(s => s.id === shiftId);
+      if (shift) {
+        shift.status = 'Tausch angefragt';
+        alert('Tauschanfrage wurde gestellt. Der Manager muss die Übernahme freigeben.');
+        saveShifts();
+      }
+    }
+
+    function takeOverShift(shiftId) {
+      const shift = shifts.find(s => s.id === shiftId);
+      if (shift) {
+        if (confirm(`Möchtest du die Schicht von ${shift.empName} am ${shift.date} übernehmen?`)) {
+          shift.empId = currentUser.id;
+          shift.empName = currentUser.name;
+          shift.status = 'Tausch angefragt';
+          alert('Übernahme angefragt! Wartet auf Freigabe durch den Manager.');
+          saveShifts();
+        }
+      }
+    }
+
+    function approveSwap(shiftId) {
+      const shift = shifts.find(s => s.id === shiftId);
+      if (shift) {
+        shift.status = 'Gebucht';
+        alert('Schichttausch wurde vom Manager freigegeben!');
+        saveShifts();
+      }
+    }
+
+    function showAddShiftModal() {
+      const date = prompt('Datum (YYYY-MM-DD):', '2026-10-13');
+      const time = prompt('Uhrzeit (z.B. 08:00 - 16:30):', '08:00 - 16:30');
+      const empName = prompt('Mitarbeiter Name:');
+      if (date && time && empName) {
+        shifts.push({
+          id: 'S' + Date.now(),
+          date: date,
+          time: time,
+          location: currentUser.location,
+          empId: 'M-Custom',
+          empName: empName,
+          role: 'Hiker',
+          status: 'Gebucht'
+        });
+        saveShifts();
+      }
+    }
+  </script>
+</body>
+</html>
